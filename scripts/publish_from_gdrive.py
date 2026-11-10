@@ -22,7 +22,7 @@ if not BUFFER_TOKEN or not CHANNEL_ID:
   )
   sys.exit(1)
 
-# Step 1: Download all files currently in the public Google Drive folder
+# Step 1: Download files from Google Drive
 os.makedirs("staging", exist_ok=True)
 download_cmd = [
     sys.executable,
@@ -37,27 +37,20 @@ download_cmd = [
 print("Fetching staged files from Google Drive...")
 subprocess.run(download_cmd, check=True)
 
-# Step 2: Locate and read manifest.json
-manifest_path = "staging/manifest.json"
-if not os.path.exists(manifest_path):
-  # Search subdirectories if gdown created a nested folder
-  matches = glob.glob("staging/**/manifest.json", recursive=True)
-  if matches:
-    manifest_path = matches[0]
-  else:
-    print("Error: No manifest.json found in the Google Drive folder.")
-    sys.exit(1)
+# Step 2: Read manifest
+matches = glob.glob("staging/**/manifest.json", recursive=True)
+if not matches:
+  print("Error: No manifest.json found in Google Drive folder.")
+  sys.exit(1)
 
-with open(manifest_path, "r", encoding="utf-8") as f:
+with open(matches[0], "r", encoding="utf-8") as f:
   manifest = json.load(f)
 
-post_id = manifest.get("post_id", "Unknown")
-title = manifest.get("title", "")
-print(f"Staging Post {post_id}: {title}")
+print(f"Staging Post {manifest.get('post_id')}: {manifest.get('title')}")
 
-# Step 3: Find the image and copy to docs/images for GitHub Pages
+# Step 3: Copy image for GitHub Pages
 os.makedirs("docs/images", exist_ok=True)
-staging_dir = os.path.dirname(manifest_path)
+staging_dir = os.path.dirname(matches[0])
 image_files = (
     glob.glob(f"{staging_dir}/*.jpg")
     + glob.glob(f"{staging_dir}/*.jpeg")
@@ -65,7 +58,7 @@ image_files = (
 )
 
 if not image_files:
-  print("Error: No image file found in the staging folder.")
+  print("Error: No image found.")
   sys.exit(1)
 
 source_image = image_files[0]
@@ -75,21 +68,26 @@ shutil.copyfile(source_image, dest_image)
 
 user, repo = REPO_NAME.split("/")
 public_image_url = f"https://{user}.github.io/{repo}/images/{image_name}"
-print(f"Public GitHub Pages URL: {public_image_url}")
+print(f"Public image URL: {public_image_url}")
 
-# Step 4: Dispatch to Buffer GraphQL API
+# Step 4: Dispatch via Buffer GraphQL schema
 caption = manifest.get("caption", "").strip()
 cta = manifest.get("cta", "").strip()
 hashtags = manifest.get("hashtags", "").strip()
-
 full_text = f"{caption}\n\n{cta}\n\n{hashtags}".strip()
 
 mutation = """
 mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
-    post {
-      id
-      status
+    ... on PostActionSuccess {
+      post {
+        id
+        text
+        status
+      }
+    }
+    ... on MutationError {
+      message
     }
   }
 }
@@ -99,8 +97,9 @@ variables = {
     "input": {
         "channelId": CHANNEL_ID,
         "text": full_text,
-        "assets": [{"type": "IMAGE", "url": public_image_url}],
-        "schedulingType": "NOW",
+        "schedulingType": "automatic",
+        "mode": "shareNow",
+        "assets": [{"image": {"url": public_image_url}}],
     }
 }
 
@@ -114,8 +113,16 @@ response = requests.post(
 )
 
 res_json = response.json()
-print("Buffer Response:", json.dumps(res_json, indent=2))
+print("Buffer Response:\n", json.dumps(res_json, indent=2))
 
+# Check for GraphQL errors
 if "errors" in res_json:
-  print("Buffer returned errors, check your channel ID or permissions.")
+  print("GraphQL Error:", res_json["errors"])
   sys.exit(1)
+
+post_result = res_json.get("data", {}).get("createPost", {})
+if "message" in post_result:
+  print("Buffer Mutation Error:", post_result["message"])
+  sys.exit(1)
+
+print("Post created successfully in Buffer!")
