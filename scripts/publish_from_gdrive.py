@@ -32,7 +32,6 @@ download_cmd = [
     GDRIVE_FOLDER_URL,
     "-O",
     "staging/",
-    "--remaining-ok",
 ]
 print("Fetching staged files from Google Drive...")
 subprocess.run(download_cmd, check=True)
