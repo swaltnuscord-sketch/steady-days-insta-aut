@@ -99,6 +99,12 @@ variables = {
         "schedulingType": "automatic",
         "mode": "shareNow",
         "assets": [{"image": {"url": public_image_url}}],
+        "metadata": {
+            "instagram": {
+                "type": "post",
+                "shouldShareToFeed": True,
+            }
+        },
     }
 }
 
