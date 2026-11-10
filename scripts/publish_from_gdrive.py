@@ -66,7 +66,7 @@ dest_image = os.path.join("docs/images", image_name)
 shutil.copyfile(source_image, dest_image)
 
 user, repo = REPO_NAME.split("/")
-public_image_url = f"https://{user}.github.io/{repo}/images/{image_name}"
+public_image_url = f"https://raw.githubusercontent.com/{user}/{repo}/main/docs/images/{image_name}"
 print(f"Public image URL: {public_image_url}")
 
 # Step 4: Dispatch via Buffer GraphQL schema
