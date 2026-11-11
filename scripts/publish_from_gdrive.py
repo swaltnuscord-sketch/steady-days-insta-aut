@@ -36,16 +36,18 @@ download_cmd = [
 print("Fetching staged files from Google Drive...")
 subprocess.run(download_cmd, check=True)
 
-# Step 2: Read manifest
-matches = glob.glob("staging/**/manifest.json", recursive=True)
+# Step 2: Read newest manifest
+matches = glob.glob('staging/**/manifest*.json', recursive=True)
 if not matches:
-  print("Error: No manifest.json found in Google Drive folder.")
+  print('Error: No manifest.json found in Google Drive folder.')
   sys.exit(1)
 
-with open(matches[0], "r", encoding="utf-8") as f:
-  manifest = json.load(f)
+# Sort by file modification time so the most recently staged manifest is always used
+newest_manifest_file = max(matches, key=os.path.getmtime)
+print(f'Using newest manifest: {newest_manifest_file}')
 
-print(f"Staging Post {manifest.get('post_id')}: {manifest.get('title')}")
+with open(newest_manifest_file, 'r', encoding='utf-8') as f:
+  manifest = json.load(f)
 
 # Step 3: Copy image for GitHub Pages
 os.makedirs("docs/images", exist_ok=True)
