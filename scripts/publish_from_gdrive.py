@@ -36,18 +36,46 @@ download_cmd = [
 print("Fetching staged files from Google Drive...")
 subprocess.run(download_cmd, check=True)
 
-# Step 2: Read newest manifest
-matches = glob.glob('staging/**/manifest*.json', recursive=True)
+# Step 2: Locate and read the newest post-specific manifest (e.g. manifest_D04.json)
+matches = glob.glob('staging/**/manifest_D*.json', recursive=True)
 if not matches:
-  print('Error: No manifest.json found in Google Drive folder.')
+  matches = glob.glob('staging/**/manifest*.json', recursive=True)
+if not matches:
+  print('Error: No manifest found in the Google Drive folder.')
   sys.exit(1)
 
-# Sort by file modification time so the most recently staged manifest is always used
-newest_manifest_file = max(matches, key=os.path.getmtime)
-print(f'Using newest manifest: {newest_manifest_file}')
+newest_manifest = max(matches, key=os.path.getmtime)
+print(f'Using manifest: {newest_manifest}')
 
-with open(newest_manifest_file, 'r', encoding='utf-8') as f:
+with open(newest_manifest, 'r', encoding='utf-8') as f:
   manifest = json.load(f)
+
+post_id = manifest.get('post_id', 'Unknown')
+title = manifest.get('title', '')
+print(f'Staging Post {post_id}: {title}')
+
+# Step 3: Use the exact image_filename listed in the manifest
+os.makedirs('docs/images', exist_ok=True)
+staging_dir = os.path.dirname(newest_manifest)
+image_name = manifest.get('image_filename')
+
+if not image_name:
+  print('Error: image_filename missing in manifest.')
+  sys.exit(1)
+
+source_image = os.path.join(staging_dir, image_name)
+if not os.path.exists(source_image):
+  print(f'Error: Expected image {source_image} not found.')
+  sys.exit(1)
+
+dest_image = os.path.join('docs/images', image_name)
+shutil.copyfile(source_image, dest_image)
+
+user, repo = REPO_NAME.split('/')
+public_image_url = (
+    f'https://raw.githubusercontent.com/{user}/{repo}/main/docs/images/{image_name}'
+)
+print(f'Public image URL: {public_image_url}')
 
 # Step 3: Copy image for GitHub Pages
 os.makedirs("docs/images", exist_ok=True)
