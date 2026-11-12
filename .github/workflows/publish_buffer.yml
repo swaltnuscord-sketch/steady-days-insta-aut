@@ -2,7 +2,9 @@ name: Publish to Instagram via Buffer
 
 on:
   schedule:
+    # 12:00 PM ET (17:00 UTC)
     - cron: '0 17 * * *'
+    # 8:00 PM ET (01:00 UTC next day)
     - cron: '0 1 * * *'
   workflow_dispatch:
 
@@ -25,21 +27,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download from Drive and commit image to GitHub
+      - name: Download from Drive and commit images to GitHub
         run: |
           python -c "
           import sys, subprocess, glob, os, shutil
           os.makedirs('staging', exist_ok=True)
           subprocess.run([sys.executable, '-m', 'gdown', '--folder', 'https://drive.google.com/drive/folders/1i5pSM8yPiWII02c6af3tD5tJSRs44Z_C', '-O', 'staging/'], check=True)
           os.makedirs('docs/images', exist_ok=True)
-          imgs = glob.glob('staging/**/*.jpg', recursive=True) + glob.glob('staging/**/*.png', recursive=True)
-          if imgs:
-              shutil.copyfile(imgs[0], os.path.join('docs/images', os.path.basename(imgs[0])))
+          for img in glob.glob('staging/**/*.jpg', recursive=True) + glob.glob('staging/**/*.png', recursive=True):
+              shutil.copyfile(img, os.path.join('docs/images', os.path.basename(img)))
           "
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/images/
-          git commit -m "Stage image for Buffer [skip ci]" || echo "No changes to commit"
+          git commit -m "Stage images for Buffer [skip ci]" || echo "No changes to commit"
           git push
 
       - name: Post to Buffer
