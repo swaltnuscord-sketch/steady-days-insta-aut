@@ -2,10 +2,20 @@ name: Publish to Instagram via Buffer
 
 on:
   schedule:
-    # 12:00 PM ET (17:00 UTC)
+    # 12:00 PM ET
     - cron: '0 17 * * *'
-    # 8:00 PM ET (01:00 UTC next day)
+    # 8:00 PM ET
     - cron: '0 1 * * *'
+    # Thu 8:30 AM ET
+    - cron: '30 13 * * 4'
+    # Fri 7:00 PM ET (00:00 UTC Sat)
+    - cron: '0 0 * * 6'
+    # Sat 11:00 AM ET
+    - cron: '0 16 * * 6'
+    # Sun 8:30 PM ET (01:30 UTC Mon)
+    - cron: '30 1 * * 1'
+    # Wed Dec 2 6:00 PM ET
+    - cron: '0 23 * * 3'
   workflow_dispatch:
 
 jobs:
@@ -47,4 +57,13 @@ jobs:
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_INSTAGRAM_CHANNEL_ID: ${{ secrets.BUFFER_INSTAGRAM_CHANNEL_ID }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: python scripts/publish_from_gdrive.py
+
+      - name: Commit published ledger
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add published.json
+          git commit -m "Record published post in ledger [skip ci]" || echo "No changes to commit"
+          git push
