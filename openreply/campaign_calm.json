@@ -1,0 +1,23 @@
+{
+  "campaign_name": "Free Chapter 1 - CALM Keyword",
+  "account": "@Steady.Days.Ebooks",
+  "trigger": {
+    "type": "comment_keyword",
+    "keywords": ["CALM"],
+    "match_mode": "whole_word_case_insensitive"
+  },
+  "public_reply_enabled": true,
+  "public_reply_variations": [
+    "Just sent Chapter 1 to your DMs! Check your Message Requests if you don't see it right away.",
+    "Sent you the link! Let us know how tomorrow morning goes."
+  ],
+  "dm_message": {
+    "text": "Here is Chapter 1 of The Calm Morning Blueprint (free) — no overhaul needed, just how to spot the one step where school mornings stall.",
+    "buttons": [
+      {
+        "title": "Read Free Chapter 1",
+        "url": "https://steadydays.store/?utm_source=instagram&utm_medium=social&utm_campaign=comment_calm&utm_content=free_chapter1"
+      }
+    ]
+  }
+}
