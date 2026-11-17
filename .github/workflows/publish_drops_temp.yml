@@ -1,9 +1,6 @@
 name: Temporary Publish Drops to Instagram
 
 on:
-  push:
-    paths:
-      - '.github/workflows/publish_drops_temp.yml'
   workflow_dispatch:
 
 jobs:
@@ -25,24 +22,43 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download drops from Drive and commit images
+      - name: Prepare drop images in docs/images
         run: |
-          python -c "
-          import sys, subprocess, glob, os, shutil
+          python - <<'EOF'
+          import base64, glob, json, os, shutil, requests
+
           os.makedirs('staging', exist_ok=True)
-          subprocess.run([sys.executable, '-m', 'gdown', '--folder', 'https://drive.google.com/drive/folders/1i5pSM8yPiWII02c6af3tD5tJSRs44Z_C', '-O', 'staging/'], check=True)
           os.makedirs('docs/images', exist_ok=True)
+
+          for b64_path in glob.glob('staging/**/drop_*.b64', recursive=True):
+              out_name = os.path.basename(b64_path)[:-4]
+              raw = open(b64_path, 'r', encoding='utf-8').read().strip()
+              with open(os.path.join('docs/images', out_name), 'wb') as f:
+                  f.write(base64.b64decode(raw))
+
+          for manifest_path in glob.glob('staging/**/manifest_drop_*.json', recursive=True):
+              with open(manifest_path, 'r', encoding='utf-8') as f:
+                  m = json.load(f)
+              img_name = m.get('image_filename')
+              dl_url = m.get('image_direct_download_url')
+              doc_path = os.path.join('docs/images', img_name) if img_name else None
+              if img_name and dl_url and doc_path and not os.path.exists(doc_path):
+                  resp = requests.get(dl_url, allow_redirects=True, timeout=30)
+                  if resp.ok and resp.content:
+                      with open(doc_path, 'wb') as f:
+                          f.write(resp.content)
+
           for img in glob.glob('staging/**/drop_*.jpg', recursive=True) + glob.glob('staging/**/drop_*.png', recursive=True):
               shutil.copyfile(img, os.path.join('docs/images', os.path.basename(img)))
-          "
+          EOF
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/images/
-          git commit -m "Stage drop_1..drop_7 images for Buffer [skip ci]" || echo "No changes to commit"
+          git commit -m "Stage drop images for Buffer [skip ci]" || echo "No changes to commit"
           git pull --rebase origin main
           git push
 
-      - name: Publish drop_1..drop_7 to Instagram via Buffer
+      - name: Publish pending drops to Instagram via Buffer
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_INSTAGRAM_CHANNEL_ID: ${{ secrets.BUFFER_INSTAGRAM_CHANNEL_ID }}
@@ -156,6 +172,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add published.json
-          git commit -m "Record drop_1..drop_7 in published.json [skip ci]" || echo "No changes to commit"
+          git commit -m "Record published drops in published.json [skip ci]" || echo "No changes to commit"
           git pull --rebase origin main
           git push
