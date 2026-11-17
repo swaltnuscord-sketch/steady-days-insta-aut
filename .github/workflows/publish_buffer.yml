@@ -37,13 +37,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download from Drive and commit images to GitHub
+      - name: Decode staged images and commit to docs/images
         run: |
           python -c "
-          import sys, subprocess, glob, os, shutil
+          import base64, glob, os, shutil
           os.makedirs('staging', exist_ok=True)
-          subprocess.run([sys.executable, '-m', 'gdown', '--folder', 'https://drive.google.com/drive/folders/1i5pSM8yPiWII02c6af3tD5tJSRs44Z_C', '-O', 'staging/'], check=True)
           os.makedirs('docs/images', exist_ok=True)
+          for b64_path in glob.glob('staging/**/*.b64', recursive=True):
+              out_name = os.path.basename(b64_path)[:-4]
+              raw = open(b64_path, 'r', encoding='utf-8').read().strip()
+              data = base64.b64decode(raw)
+              with open(os.path.join(os.path.dirname(b64_path), out_name), 'wb') as out_f:
+                  out_f.write(data)
+              with open(os.path.join('docs/images', out_name), 'wb') as doc_f:
+                  doc_f.write(data)
           for img in glob.glob('staging/**/*.jpg', recursive=True) + glob.glob('staging/**/*.png', recursive=True):
               shutil.copyfile(img, os.path.join('docs/images', os.path.basename(img)))
           "
@@ -51,6 +58,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/images/
           git commit -m "Stage images for Buffer [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
           git push
 
       - name: Post to Buffer
@@ -66,4 +74,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add published.json
           git commit -m "Record published post in ledger [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
           git push
