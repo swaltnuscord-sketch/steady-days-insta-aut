@@ -1,0 +1,39 @@
+name: Decode Staged Images to docs/images
+
+on:
+  push:
+    paths:
+      - 'staging/**/*.b64'
+  workflow_dispatch:
+
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Decode staged .b64 files into docs/images
+        run: |
+          python - <<'EOF'
+          import base64, glob, os
+
+          os.makedirs('docs/images', exist_ok=True)
+          for b64_path in glob.glob('staging/**/*.b64', recursive=True):
+              out_name = os.path.basename(b64_path)[:-4]
+              raw = open(b64_path, 'r', encoding='utf-8').read().strip()
+              data = base64.b64decode(raw)
+              with open(os.path.join('docs/images', out_name), 'wb') as f:
+                  f.write(data)
+              with open(os.path.join(os.path.dirname(b64_path), out_name), 'wb') as f:
+                  f.write(data)
+          EOF
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/images/ staging/
+          git commit -m "Decode staged images to docs/images [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push
