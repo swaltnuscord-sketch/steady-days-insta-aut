@@ -37,12 +37,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Decode staged images and commit to docs/images
+      - name: Decode or fetch staged images and commit to docs/images
         run: |
-          python -c "
-          import base64, glob, os, shutil
+          python - <<'EOF'
+          import base64, glob, json, os, shutil, requests
+
           os.makedirs('staging', exist_ok=True)
           os.makedirs('docs/images', exist_ok=True)
+
           for b64_path in glob.glob('staging/**/*.b64', recursive=True):
               out_name = os.path.basename(b64_path)[:-4]
               raw = open(b64_path, 'r', encoding='utf-8').read().strip()
@@ -51,9 +53,22 @@ jobs:
                   out_f.write(data)
               with open(os.path.join('docs/images', out_name), 'wb') as doc_f:
                   doc_f.write(data)
+
+          for manifest_path in glob.glob('staging/**/manifest_*.json', recursive=True):
+              with open(manifest_path, 'r', encoding='utf-8') as f:
+                  m = json.load(f)
+              img_name = m.get('image_filename')
+              dl_url = m.get('image_direct_download_url')
+              target_staging = os.path.join(os.path.dirname(manifest_path), img_name) if img_name else None
+              if img_name and dl_url and target_staging and not os.path.exists(target_staging):
+                  resp = requests.get(dl_url, allow_redirects=True, timeout=30)
+                  if resp.ok and resp.content:
+                      with open(target_staging, 'wb') as img_f:
+                          img_f.write(resp.content)
+
           for img in glob.glob('staging/**/*.jpg', recursive=True) + glob.glob('staging/**/*.png', recursive=True):
               shutil.copyfile(img, os.path.join('docs/images', os.path.basename(img)))
-          "
+          EOF
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/images/
