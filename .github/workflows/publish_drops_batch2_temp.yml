@@ -1,0 +1,183 @@
+name: Temporary Publish Drops Batch 2 (drop_8-drop_17)
+
+on:
+  push:
+    paths:
+      - '.github/workflows/publish_drops_batch2_temp.yml'
+  workflow_dispatch:
+
+jobs:
+  publish_drops_batch2:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Wait 1 minute after workflow creation
+        run: sleep 60
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Prepare drop images in docs/images
+        run: |
+          python - <<'EOF'
+          import base64, glob, json, os, shutil, requests
+
+          os.makedirs('staging', exist_ok=True)
+          os.makedirs('docs/images', exist_ok=True)
+
+          for b64_path in glob.glob('staging/**/drop_*.b64', recursive=True):
+              out_name = os.path.basename(b64_path)[:-4]
+              raw = open(b64_path, 'r', encoding='utf-8').read().strip()
+              with open(os.path.join('docs/images', out_name), 'wb') as f:
+                  f.write(base64.b64decode(raw))
+
+          for manifest_path in glob.glob('staging/**/manifest_drop_*.json', recursive=True):
+              with open(manifest_path, 'r', encoding='utf-8') as f:
+                  m = json.load(f)
+              img_name = m.get('image_filename')
+              dl_url = m.get('image_direct_download_url')
+              doc_path = os.path.join('docs/images', img_name) if img_name else None
+              if img_name and dl_url and doc_path and not os.path.exists(doc_path):
+                  resp = requests.get(dl_url, allow_redirects=True, timeout=30)
+                  if resp.ok and resp.content:
+                      with open(doc_path, 'wb') as f:
+                          f.write(resp.content)
+
+          for img in glob.glob('staging/**/drop_*.jpg', recursive=True) + glob.glob('staging/**/drop_*.png', recursive=True):
+              shutil.copyfile(img, os.path.join('docs/images', os.path.basename(img)))
+          EOF
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/images/
+          git commit -m "Stage drop_8-drop_17 images for Buffer [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push
+
+      - name: Publish pending drops to Instagram via Buffer
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          BUFFER_INSTAGRAM_CHANNEL_ID: ${{ secrets.BUFFER_INSTAGRAM_CHANNEL_ID }}
+        run: |
+          python - <<'EOF'
+          import glob
+          import json
+          import os
+          import sys
+          import time
+          import requests
+
+          BUFFER_API_URL = "https://api.buffer.com"
+          PUBLISHED_LEDGER = "published.json"
+          BUFFER_TOKEN = os.environ.get("BUFFER_API_KEY")
+          CHANNEL_ID = os.environ.get("BUFFER_INSTAGRAM_CHANNEL_ID")
+          REPO_NAME = os.environ.get("GITHUB_REPOSITORY", "swaltnuscord-sketch/steady-days-insta-aut")
+
+          if not BUFFER_TOKEN or not CHANNEL_ID:
+              print("Error: Missing BUFFER_API_KEY or BUFFER_INSTAGRAM_CHANNEL_ID in secrets.")
+              sys.exit(1)
+
+          published_ids = []
+          if os.path.exists(PUBLISHED_LEDGER):
+              with open(PUBLISHED_LEDGER, "r", encoding="utf-8") as f:
+                  published_ids = json.load(f)
+
+          matches = sorted(glob.glob("staging/**/manifest_drop_*.json", recursive=True))
+          if not matches:
+              print("Error: No manifest_drop_*.json found in staging.")
+              sys.exit(1)
+
+          mutation = """
+          mutation CreatePost($input: CreatePostInput!) {
+            createPost(input: $input) {
+              ... on PostActionSuccess {
+                post { id text status }
+              }
+              ... on MutationError { message }
+            }
+          }
+          """
+
+          user, repo = REPO_NAME.split("/")
+          errors = 0
+
+          for path in matches:
+              with open(path, "r", encoding="utf-8") as f:
+                  manifest = json.load(f)
+
+              post_id = manifest.get("post_id")
+              if not post_id or post_id in published_ids:
+                  print(f"Skipping {post_id} (already published or invalid).")
+                  continue
+
+              image_name = manifest.get("image_filename")
+              if not image_name or not os.path.exists(os.path.join("docs/images", image_name)):
+                  print(f"Error: docs/images/{image_name} not found for {post_id}.")
+                  errors += 1
+                  continue
+
+              public_image_url = f"https://raw.githubusercontent.com/{user}/{repo}/main/docs/images/{image_name}"
+              caption = (manifest.get("caption") or "").strip()
+              raw_tags = manifest.get("hashtags", "")
+              hashtags = " ".join(raw_tags) if isinstance(raw_tags, list) else str(raw_tags).strip()
+              full_text = caption if (not hashtags or hashtags in caption) else f"{caption}\n\n{hashtags}".strip()
+
+              variables = {
+                  "input": {
+                      "channelId": CHANNEL_ID,
+                      "text": full_text,
+                      "schedulingType": "automatic",
+                      "mode": "shareNow",
+                      "assets": [{"image": {"url": public_image_url}}],
+                      "metadata": {"instagram": {"type": "post", "shouldShareToFeed": True}},
+                  }
+              }
+
+              print(f"Publishing {post_id} ({public_image_url})...")
+              response = requests.post(
+                  BUFFER_API_URL,
+                  json={"query": mutation, "variables": variables},
+                  headers={
+                      "Authorization": f"Bearer {BUFFER_TOKEN}",
+                      "Content-Type": "application/json",
+                  },
+              )
+              res_json = response.json()
+              print(f"Buffer response for {post_id}:", json.dumps(res_json))
+
+              if "errors" in res_json or "message" in res_json.get("data", {}).get("createPost", {}):
+                  print(f"Buffer failed for {post_id}.")
+                  errors += 1
+              else:
+                  published_ids.append(post_id)
+
+              time.sleep(2)
+
+          with open(PUBLISHED_LEDGER, "w", encoding="utf-8") as f:
+              json.dump(published_ids, f, indent=2)
+              f.write("\n")
+
+          if errors:
+              print(f"Finished with {errors} error(s).")
+              sys.exit(1)
+          EOF
+
+      - name: Commit published ledger
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add published.json
+          git commit -m "Record published drops (drop_8-drop_17) in published.json [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push
