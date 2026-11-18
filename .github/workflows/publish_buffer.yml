@@ -19,6 +19,7 @@ on:
   push:
     paths:
       - '.github/workflows/publish_buffer.yml'
+      - 'staging/manifest_*.json'
   workflow_dispatch:
 
 jobs:
