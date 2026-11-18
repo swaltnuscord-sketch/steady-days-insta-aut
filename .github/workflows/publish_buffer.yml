@@ -16,6 +16,9 @@ on:
     - cron: '30 1 * * 1'
     # Wed Dec 2 6:00 PM ET
     - cron: '0 23 * * 3'
+  push:
+    paths:
+      - '.github/workflows/publish_buffer.yml'
   workflow_dispatch:
 
 jobs:
