@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish_carousel:
+  build_pages:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,10 +41,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download carousel slides from Drive and commit to docs/images
+      - name: Download carousel slides from Drive, push to docs/images, and wait for GitHub Pages build
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python - <<'EOF'
-          import json, os, sys, requests
+          import json, os, sys, time, requests
 
           trigger_path = "staging/carousel_trigger.json"
           if not os.path.exists(trigger_path):
@@ -78,9 +80,67 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/images/
-          git commit -m "Stage carousel images for Buffer [skip ci]" || echo "No changes to commit"
+          git commit -m "Stage carousel images for GitHub Pages [skip ci]" || echo "No changes to commit"
           git pull --rebase origin main
           git push
+
+          python - <<'EOF'
+          import json, os, time, requests
+
+          trigger_path = "staging/carousel_trigger.json"
+          if not os.path.exists(trigger_path):
+              exit(0)
+
+          with open(trigger_path, "r", encoding="utf-8") as f:
+              trigger = json.load(f)
+
+          manifest_url = trigger.get("manifest_direct_download_url")
+          if not manifest_url:
+              exit(0)
+
+          manifest = requests.get(manifest_url, allow_redirects=True, timeout=30).json()
+          filenames = manifest.get("image_filenames", [])
+          user, repo = os.environ.get("GITHUB_REPOSITORY", "swaltnuscord-sketch/steady-days-insta-aut").split("/")
+          pages_urls = [f"https://{user}.github.io/{repo}/images/{fname}" for fname in filenames]
+
+          deadline = time.time() + 180
+          while time.time() < deadline:
+              ready = True
+              for u in pages_urls:
+                  try:
+                      if requests.head(u, allow_redirects=True, timeout=10).status_code != 200:
+                          ready = False
+                          break
+                  except Exception:
+                      ready = False
+                      break
+              if ready:
+                  print("All 5 carousel slides are live on GitHub Pages!")
+                  break
+              print("Waiting for GitHub Pages build to finish...")
+              time.sleep(10)
+          else:
+              print("Timed out waiting for GitHub Pages; publish step will fall back to raw URL if needed.")
+          EOF
+
+  publish_buffer:
+    needs: build_pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Post 5-slide carousel to Buffer
         env:
