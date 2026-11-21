@@ -1,0 +1,99 @@
+name: Publish 5-Slide Carousel to Instagram via Buffer
+
+on:
+  schedule:
+    # 12:00 PM ET
+    - cron: '0 17 * * *'
+    # 8:00 PM ET
+    - cron: '0 1 * * *'
+    # Thu 8:30 AM ET
+    - cron: '30 13 * * 4'
+    # Fri 7:00 PM ET (00:00 UTC Sat)
+    - cron: '0 0 * * 6'
+    # Sat 11:00 AM ET
+    - cron: '0 16 * * 6'
+    # Sun 8:30 PM ET (01:30 UTC Mon)
+    - cron: '30 1 * * 1'
+    # Wed Dec 2 6:00 PM ET
+    - cron: '0 23 * * 3'
+  push:
+    paths:
+      - '.github/workflows/publish_buffer_carousel.yml'
+      - 'staging/carousel_trigger.json'
+  workflow_dispatch:
+
+jobs:
+  publish_carousel:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download carousel slides from Drive and commit to docs/images
+        run: |
+          python - <<'EOF'
+          import json, os, sys, requests
+
+          trigger_path = "staging/carousel_trigger.json"
+          if not os.path.exists(trigger_path):
+              print("No staging/carousel_trigger.json found; skipping image download.")
+              sys.exit(0)
+
+          with open(trigger_path, "r", encoding="utf-8") as f:
+              trigger = json.load(f)
+
+          manifest_url = trigger.get("manifest_direct_download_url")
+          if not manifest_url:
+              print("No manifest_direct_download_url in carousel_trigger.json.")
+              sys.exit(1)
+
+          m_resp = requests.get(manifest_url, allow_redirects=True, timeout=30)
+          m_resp.raise_for_status()
+          manifest = m_resp.json()
+
+          os.makedirs("docs/images", exist_ok=True)
+          filenames = manifest.get("image_filenames", [])
+          urls = manifest.get("image_direct_download_urls", [])
+
+          for fname, url in zip(filenames, urls):
+              out_path = os.path.join("docs/images", fname)
+              r = requests.get(url, allow_redirects=True, timeout=30)
+              r.raise_for_status()
+              with open(out_path, "wb") as img_f:
+                  img_f.write(r.content)
+              print(f"Downloaded {out_path} ({len(r.content)} bytes)")
+          EOF
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/images/
+          git commit -m "Stage carousel images for Buffer [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push
+
+      - name: Post 5-slide carousel to Buffer
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          BUFFER_INSTAGRAM_CHANNEL_ID: ${{ secrets.BUFFER_INSTAGRAM_CHANNEL_ID }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python scripts/publish_carousel_from_gdrive.py
+
+      - name: Commit published ledger
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add published.json
+          git commit -m "Record published carousel in ledger [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push
