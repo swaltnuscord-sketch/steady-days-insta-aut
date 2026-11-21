@@ -40,7 +40,10 @@ def main():
 
   resp = requests.get(manifest_url, allow_redirects=True, timeout=30)
   if not resp.ok:
-    print(f"Error: Could not download manifest from {manifest_url} ({resp.status_code})")
+    print(
+        f"Error: Could not download manifest from {manifest_url}"
+        f" ({resp.status_code})"
+    )
     sys.exit(1)
 
   manifest = resp.json()
@@ -68,7 +71,7 @@ def main():
     if now_et < scheduled_dt:
       print(
           f"Post {post_id} is not due yet ({scheduled_dt.isoformat()} ET)."
-          " Images are staged in docs/images/. Exiting cleanly."
+          " Pages are built and images are staged. Exiting cleanly."
       )
       sys.exit(0)
 
@@ -80,13 +83,14 @@ def main():
   user, repo = REPO_NAME.split("/")
   assets = []
   for fname in image_filenames:
-    local_path = os.path.join("docs/images", fname)
-    if not os.path.exists(local_path):
-      print(f"Error: Expected staged image {local_path} not found.")
-      sys.exit(1)
-    public_url = (
+    pages_url = f"https://{user}.github.io/{repo}/images/{fname}"
+    raw_url = (
         f"https://raw.githubusercontent.com/{user}/{repo}/main/docs/images/{fname}"
     )
+    # Prefer the built GitHub Pages URL when live; fall back to raw URL if needed
+    check = requests.head(pages_url, allow_redirects=True, timeout=10)
+    public_url = pages_url if check.ok else raw_url
+    print(f"Using image URL for {fname}: {public_url}")
     assets.append({"image": {"url": public_url}})
 
   full_text = (
